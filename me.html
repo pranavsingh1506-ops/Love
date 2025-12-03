@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Controllable Love Universe</title>
+    <!-- Tailwind CSS ko load karein (sirf basic styling ke liye) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js library load karein (3D rendering ke liye) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls load karein (mouse/touch se scene ghumaane ke liye) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        /* CSS se poori screen ko cover karein */
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; 
+            background-color: #000000; /* Kala background */
+            font-family: 'Inter', sans-serif;
+            touch-action: none; /* Touch control ke liye zaroori */
+        }
+        #loveCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #loading-overlay {
+            /* Loading screen jab tak assets load ho rahe hain */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            font-size: 1.2rem;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay">
+        3D Universe load ho raha hai... Camera ko ghumaane ke liye mouse/touch ka upyog karein!
+    </div>
+
+    <!-- Canvas jahan Three.js render karega -->
+    <canvas id="loveCanvas"></canvas>
+
+    <script type="module">
+        // --- ANIMATION CONSTANTS ---
+        const PARTICLE_COUNT = 1500; // Particles ki sankhya
+        const MAX_Z_DISTANCE = 3000; // 3D space ki gehrai
+        const BASE_SPEED = 0.8; // Particles ki dheemi gati
+        const SPREAD_RADIUS = 600; // Particles failane ka area
+        
+        // Aapke diye hue lambe messages
+        const TEXT_MESSAGES = [
+            "iiii LOVEEEE youuuuuuuuuuuuuuu sooooooooooooo muchhhhhhhhhhhhh",
+            "I yaad you too much rn",
+            "never wants to loose you",
+            "wanna hug you soo hard",
+            "you are sooo special",
+            "missing you"
+        ];
+        
+        let scene, camera, renderer, controls;
+        let particlesGroup = new THREE.Group(); 
+        let preRenderedTextures = []; 
+
+        /**
+         * Canvas Texture banata hai (Text aur Glow ko pre-render karke performance badhata hai)
+         */
+        function createParticleTexture(text, color) {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Text size (Aapke anurodh par badhaya gaya)
+            const fontSize = text === '❤️' ? 50 : 30; 
+            const font = `${fontSize}px 'Inter', sans-serif`;
+            const padding = 30; 
+
+            // Canvas size calculate karein
+            tempCtx.font = font;
+            const textMetrics = tempCtx.measureText(text);
+            tempCanvas.width = textMetrics.width + padding;
+            tempCanvas.height = fontSize + padding;
+
+            // Text properties set karein
+            tempCtx.font = font;
+            tempCtx.textAlign = 'center';
+            tempCtx.textBaseline = 'middle';
+            
+            // Neon Glow Effect (Halka kiya gaya)
+            tempCtx.shadowBlur = 12; 
+            tempCtx.shadowColor = color;
+            tempCtx.fillStyle = color;
+
+            // Text ko draw karein
+            tempCtx.fillText(text, tempCanvas.width / 2, tempCanvas.height / 2 + (fontSize / 10));
+
+            const texture = new THREE.CanvasTexture(tempCanvas);
+            texture.needsUpdate = true;
+            
+            return {
+                texture: texture,
+                width: tempCanvas.width,
+                height: tempCanvas.height
+            };
+        }
+
+        /**
+         * Sabhi Text aur Heart assets ko load hone se pehle render karta hai.
+         */
+        function preRenderAssets() {
+            // Text Message Textures
+            TEXT_MESSAGES.forEach((msg, index) => {
+                const color = (index % 2 === 0) ? '#4dd0e1' : '#f06292'; // Cyan/Pink
+                preRenderedTextures.push({
+                    type: 'text',
+                    ...createParticleTexture(msg, color),
+                    color: color,
+                });
+            });
+
+            // Heart Texture
+            preRenderedTextures.push({
+                type: 'heart',
+                ...createParticleTexture('❤️', '#FF4444'),
+                color: '#FF4444',
+            });
+            
+            // Loading screen hide karein
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+
+        /**
+         * Three.js scene, camera, aur controls ko initialize karta hai.
+         */
+        function init() {
+            preRenderAssets();
+
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            scene.fog = new THREE.Fog(0x000000, 100, MAX_Z_DISTANCE * 0.8); 
+
+            // 2. Camera Setup (Open space feel ke liye wide FOV)
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, MAX_Z_DISTANCE);
+            camera.position.z = 1000; 
+
+            // 3. Renderer Setup
+            const canvas = document.getElementById('loveCanvas');
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            // 4. Orbit Controls Setup (Camera ko ghumaane ke liye)
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; 
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 500; 
+            controls.maxDistance = MAX_Z_DISTANCE * 0.7;
+
+            // 5. Particles create karein
+            createParticles();
+            
+            scene.add(particlesGroup);
+            
+            // Window resize event handle karein
+            window.addEventListener('resize', onWindowResize, false);
+
+            // Animation loop shuru karein
+            animate();
+        }
+
+        /**
+         * Sabhi Particle Meshes ko banata hai (Text aur Heart)
+         */
+        function createParticles() {
+            const heartAsset = preRenderedTextures.find(a => a.type === 'heart');
+            const textAssets = preRenderedTextures.filter(a => a.type === 'text');
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const isHeart = Math.random() < 0.2; // 20% hearts
+                const asset = isHeart ? heartAsset : textAssets[Math.floor(Math.random() * textAssets.length)];
+                
+                // SpriteMaterial ka upyog (2D image in 3D space)
+                const material = new THREE.SpriteMaterial({
+                    map: asset.texture,
+                    color: 0xFFFFFF,
+                    blending: THREE.AdditiveBlending,
+                    transparent: true
+                });
+
+                const sprite = new THREE.Sprite(material);
+
+                // Initial positioning (Centralized aur door)
+                const p = {};
+                p.z = Math.random() * MAX_Z_DISTANCE;
+                
+                // Random position in a sphere around the center
+                const distance = Math.random() * SPREAD_RADIUS;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(Math.random() * 2 - 1);
+                
+                sprite.position.x = distance * Math.sin(phi) * Math.cos(theta);
+                sprite.position.y = distance * Math.sin(phi) * Math.sin(theta);
+                sprite.position.z = p.z;
+                
+                // Animation data store karein
+                sprite.userData.velocity = Math.random() * 0.5 + BASE_SPEED;
+                sprite.userData.isHeart = isHeart;
+                
+                // Scale control (Text size badhaya gaya)
+                const initialScale = isHeart ? 18 : 50; 
+                sprite.scale.set(initialScale, initialScale, 1);
+                
+                particlesGroup.add(sprite);
+            }
+        }
+
+        /**
+         * Main animation loop.
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Controls (camera movement) ko update karein
+            controls.update();
+
+            // Particle movement (Tunnel effect)
+            particlesGroup.children.forEach(sprite => {
+                const speed = sprite.userData.velocity;
+                
+                // Z-axis par aage badhao (camera ki taraf)
+                sprite.position.z -= speed;
+
+                // Loop effect (jab particle camera se cross ho jaaye to use door reset karein)
+                if (sprite.position.z < camera.near) {
+                    sprite.position.z = MAX_Z_DISTANCE;
+                    
+                    // Reset position to centralized area
+                    const distance = Math.random() * SPREAD_RADIUS;
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(Math.random() * 2 - 1);
+                    
+                    sprite.position.x = distance * Math.sin(phi) * Math.cos(theta);
+                    sprite.position.y = distance * Math.sin(phi) * Math.sin(theta);
+                    
+                    // Nayi speed
+                    sprite.userData.velocity = Math.random() * 0.5 + BASE_SPEED;
+                }
+                
+                // Opacity Adjustment (Door waale dhundle)
+                const distanceRatio = 1 - (sprite.position.z / MAX_Z_DISTANCE);
+                sprite.material.opacity = distanceRatio * 0.7 + 0.2; 
+                
+                // Hearts ke liye halke floating effect
+                if (sprite.userData.isHeart) {
+                    sprite.position.x += Math.sin(Date.now() * 0.0005 + sprite.position.z) * 0.1;
+                    sprite.position.y += Math.cos(Date.now() * 0.0003 + sprite.position.z) * 0.1;
+                }
+            });
+
+            // Scene render karein
+            renderer.render(scene, camera);
+        }
+
+        /**
+         * Window resize hone par scene adjust karein
+         */
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Window load hone par init function call karein
+        window.onload = init;
+    </script>
+
+</body>
+</html>
+
